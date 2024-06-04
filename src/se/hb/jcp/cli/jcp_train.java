@@ -379,7 +379,7 @@ public class jcp_train
         System.out.println("Duration " + (double)(t3 - t2)/1000.0 + " sec.");
 
         System.out.println("Training on " + _training.x.rows() + " instances and calibrating on " + _calibration.x.rows() + " instances.");
-        InductiveConformalRegressor icr = new InductiveConformalRegressor(RegressionNonconformityFunctionFactory.getInstance().createNonconformityFunction(_ncFunctionType, _regressor));
+        QuantileConformalRegressor icr = new QuantileConformalRegressor(RegressionNonconformityFunctionFactory.getInstance().createNonconformityFunction(_ncFunctionType, _regressor));
         icr.fit(_training.x, _training.y, _calibration.x, _calibration.y);
         if (_validate) {
             RTools.runTest(icr, _test, null, _significanceLevel, false);

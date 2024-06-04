@@ -35,6 +35,10 @@ public class SquaredErrorNonconformityFunction implements IRegressionNonconformi
     public double predict(DoubleMatrix1D instance) {
         return _regressor.predict(instance);
     }
+    public double[] predictWithUncertainty(DoubleMatrix1D instance){
+        //TODO
+        return null;
+    }
 
     @Override
     public int getAttributeCount() {

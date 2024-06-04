@@ -28,6 +28,7 @@ public interface IRegressionNonconformityFunction {
     double predict(DoubleMatrix1D instance);
     int getAttributeCount();
     DoubleMatrix1D nativeStorageTemplate();
+    public double[] predictWithUncertainty(DoubleMatrix1D instance);
 }
 
 

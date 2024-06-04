@@ -30,14 +30,14 @@ import java.util.Arrays;
 
 import se.hb.jcp.nc.IRegressionNonconformityFunction;
 
-public class InductiveConformalRegressor implements IConformalRegressor, java.io.Serializable {
+public class QuantileConformalRegressor implements IConformalRegressor, java.io.Serializable {
     
     private static final boolean PARALLEL = true;
 
     private IRegressionNonconformityFunction _nc;
     private double[] _calibrationScores;
 
-    public InductiveConformalRegressor(IRegressionNonconformityFunction nc) {
+    public QuantileConformalRegressor(IRegressionNonconformityFunction nc) {
         _nc = nc;
     }
 
@@ -47,34 +47,35 @@ public class InductiveConformalRegressor implements IConformalRegressor, java.io
     }
 
     public void calibrate(DoubleMatrix2D xcal, double[] ycal) {
-        if (getNonconformityFunction() == null || !getNonconformityFunction().isTrained()) {
-            throw new UnsupportedOperationException(
-                "The non-conformity function must be trained before calibration."
-            );
-        }
         int n = xcal.rows();
         _calibrationScores = new double[n];
-
-        if (!PARALLEL) {
-            for (int i = 0; i < n; i++) {
-                DoubleMatrix1D instance = xcal.viewRow(i);
-                _calibrationScores[i] = _nc.calculateNonConformityScore(instance, ycal[i]);
-            }
-        } else {
-            CalculateNCScoresAction all = new CalculateNCScoresAction(xcal, ycal, _calibrationScores, 0, n);
-            all.start();
+    
+        for (int i = 0; i < n; i++) {
+            DoubleMatrix1D instance = xcal.viewRow(i);
+            double[] prediction = _nc.predictWithUncertainty(instance);
+            double predictedValue = prediction[0];
+            double uncertainty = prediction[1];
+            _calibrationScores[i] = Math.abs(ycal[i] - predictedValue) / uncertainty;
         }
+    
         Arrays.sort(_calibrationScores);
     }
 
-    public double[] predictIntervals(DoubleMatrix1D x, double confidence) {
-        //double ncScore = _nc.calculateNonConformityScore(x, _nc.predict(x));
-        //always the same epsilon... 
-        int idx = (int) Math.ceil((1 - confidence) * (_calibrationScores.length + 1));
-        //System.out.println("Sorted calibration scores: " + Arrays.toString(_calibrationScores));
-        double epsilon = _calibrationScores[Math.min(idx, _calibrationScores.length - 1)];
-        double prediction = _nc.predict(x);
-        return new double[] { prediction - epsilon, prediction + epsilon };
+    public double calculateQuantile(double alpha) {
+        int n = _calibrationScores.length;
+        int index = (int) Math.ceil((1 - alpha) * (n + 1)); 
+        return _calibrationScores[Math.min(index, n - 1)];
+    }
+
+
+    public double[] predictIntervals(DoubleMatrix1D x, double alpha) {
+        double [] prediction = _nc.predictWithUncertainty(x);
+        double predictedValue = prediction[0];
+        double uncertainty = prediction[1];
+        double qhat = calculateQuantile(alpha);
+        System.out.println("predicted : " + predictedValue + " uncert " + uncertainty);
+        System.out.println(qhat);
+        return new double[]{predictedValue - qhat * uncertainty, predictedValue + qhat * uncertainty};
     }
 
     public double[][] predictIntervals(DoubleMatrix2D x, double confidence) {
