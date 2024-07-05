@@ -26,7 +26,8 @@ public class RegressorFactory {
     {
         "se.hb.jcp.bindings.jliblinear.LinearRegressor",
         "se.hb.jcp.bindings.jlibsvm.SVMRegressor",
-        "se.hb.jcp.bindings.deeplearning4j.NN4jRegressor"
+        "se.hb.jcp.bindings.deeplearning4j.NN4jRegressor",
+        "se.hb.jcp.bindings.smile.GaussianProcessRegressor"
     };  
     private RegressorFactory()
     {
@@ -53,6 +54,8 @@ public class RegressorFactory {
             return new se.hb.jcp.bindings.jlibsvm.SVMRegressor(config);
         case 2:
             return new se.hb.jcp.bindings.deeplearning4j.NN4jRegressor(config);
+        case 3:
+            return new se.hb.jcp.bindings.smile.GaussianProcessRegressor(config);
         default:
             throw new UnsupportedOperationException("Unknown classifier type.");
         }

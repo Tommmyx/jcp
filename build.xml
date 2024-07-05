@@ -15,6 +15,9 @@
     <fileset dir="../neuroph-2.98/Framework/libs" includes="*.jar" />
     <fileset dir="../deeplearning4j" includes="*.jar" />
     <fileset dir="../weka" includes="*.jar" />
+    <fileset dir="../smile-3.1.1/bin" includes="*.jar" />
+    <fileset dir="../smile-3.1.1/lib" includes="*.jar" />
+
   </path>
 
   <property name="build.dir"   value="build"/>

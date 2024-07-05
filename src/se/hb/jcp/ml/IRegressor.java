@@ -27,7 +27,7 @@ import cern.colt.matrix.DoubleMatrix2D;
  * 2. The fitNew and predict methods of the Regressor must be reentrant.
  */
 public interface IRegressor
-    extends IRegressorInformation, java.io.Serializable
+    extends IRegressorInformation
 {
     /**
      * Trains this regressor using the supplied data.
