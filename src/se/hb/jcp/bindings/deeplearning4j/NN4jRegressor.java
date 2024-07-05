@@ -19,12 +19,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.nd4j.linalg.learning.config.Nesterovs;
 
+import smile.validation.CrossValidation;
+import smile.validation.Bag;
+
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 import cern.colt.matrix.DoubleMatrix1D;
 import cern.colt.matrix.DoubleMatrix2D;
@@ -60,8 +66,9 @@ public class NN4jRegressor extends RegressorBase implements IRegressor, java.io.
 
     @Override
     public IRegressor fitNew(DoubleMatrix2D x, double[] y) {
-        internalFit(x, y);
-        return new NN4jRegressor(_model);
+        NN4jRegressor newRegressor = new NN4jRegressor();
+        newRegressor.internalFit(x, y);
+        return newRegressor;
     }
 
     @Override
@@ -79,13 +86,89 @@ public class NN4jRegressor extends RegressorBase implements IRegressor, java.io.
 
     @Override
     protected void internalFit(DoubleMatrix2D x, double[] y) {
-        _model = createAndTrainNetwork(x, y);
+        _model = createAndTrainNetwork(x.toArray(), y, 50, 0.1, 50);
     }
 
-    private MultiLayerNetwork createAndTrainNetwork(DoubleMatrix2D x, double[] y) {
-        int inputFeatures = x.columns();
-        int nEpochs = 50;
-        double learningRate = 0.0001;
+    public void gridSearch(DoubleMatrix2D x, double[] y, int folds, double[] learningRateOptions, int[] hiddenLayerSizes, int[] numEpochsOptions) {
+        int n = x.rows();
+        int d = x.columns();
+        double[][] data = new double[n][d];
+
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < d; j++) {
+                data[i][j] = x.get(i, j);
+            }
+        }
+
+        double bestLearningRate = 0;
+        int bestNumEpochs = 0;
+        int[] bestHiddenLayerSizes = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+
+        for (double learningRate : learningRateOptions) {
+            for (int numEpochs : numEpochsOptions) {
+                for (int hiddenLayerSize : hiddenLayerSizes) {
+                    MultiLayerNetwork model = createAndTrainNetwork(data, y, hiddenLayerSize, learningRate, numEpochs);
+
+                    double score = 0.0;
+
+                    Bag[] bags = CrossValidation.of(n, folds);
+
+                    for (int i = 0; i < folds; i++) {
+                        int[] trainIndices = bags[i].samples;
+                        int[] testIndices = bags[i].oob;
+
+                        double[][] trainData = Arrays.stream(trainIndices)
+                                                     .mapToObj(j -> data[j])
+                                                     .toArray(double[][]::new);
+                        double[] trainLabels = Arrays.stream(trainIndices)
+                                                     .mapToDouble(j -> y[j])
+                                                     .toArray();
+                        double[][] testData = Arrays.stream(testIndices)
+                                                    .mapToObj(j -> data[j])
+                                                    .toArray(double[][]::new);
+                        double[] testLabels = Arrays.stream(testIndices)
+                                                    .mapToDouble(j -> y[j])
+                                                    .toArray();
+
+                        DataSet trainSet = createDataSet(trainData, trainLabels);
+                        DataSet testSet = createDataSet(testData, testLabels);
+
+                        model.fit(trainSet);
+
+                        double foldScore = 0.0;
+                        INDArray testFeatures = Nd4j.create(testData);
+                        INDArray testPredictions = model.output(testFeatures);
+
+                        for (int j = 0; j < testData.length; j++) {
+                            foldScore += Math.pow(testPredictions.getDouble(j) - testLabels[j], 2);
+                        }
+                        score += foldScore / testData.length;
+                    }
+
+                    score = -score / folds;  
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestLearningRate = learningRate;
+                        bestNumEpochs = numEpochs;
+                        bestHiddenLayerSizes = new int[]{hiddenLayerSize};
+                    }
+                }
+            }
+        }
+
+        System.out.println("Best Learning Rate: " + bestLearningRate);
+        System.out.println("Best Number of Epochs: " + bestNumEpochs);
+        System.out.println("Best Hidden Layer Sizes: " + Arrays.toString(bestHiddenLayerSizes));
+        System.out.println("Best Score: " + bestScore);
+
+        _model = createAndTrainNetwork(data, y, bestHiddenLayerSizes[0], bestLearningRate, bestNumEpochs);
+    }
+
+    private MultiLayerNetwork createAndTrainNetwork(double[][] x, double[] y, int hiddenLayerSize, double learningRate, int nEpochs) {
+        int inputFeatures = x[0].length;
+
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
             .seed(12345)
             .activation(Activation.RELU)
@@ -93,35 +176,49 @@ public class NN4jRegressor extends RegressorBase implements IRegressor, java.io.
             .updater(new Nesterovs(learningRate, 0.9))
             .l2(1e-4)
             .list()
-            .layer(new DenseLayer.Builder().nIn(inputFeatures).nOut(50).build())
-            .layer(new DenseLayer.Builder().nIn(50).nOut(50).build())
-            .layer(new DenseLayer.Builder().nIn(50).nOut(50).build())
+            .layer(new DenseLayer.Builder().nIn(inputFeatures).nOut(hiddenLayerSize).build())
+            .layer(new DenseLayer.Builder().nIn(hiddenLayerSize).nOut(hiddenLayerSize).build())
+            .layer(new DenseLayer.Builder().nIn(hiddenLayerSize).nOut(hiddenLayerSize).build())
             .layer(new OutputLayer.Builder(LossFunctions.LossFunction.MSE)
                 .activation(Activation.IDENTITY)
-                .nIn(50).nOut(1).build())
+                .nIn(hiddenLayerSize).nOut(1).build())
             .build();
 
         MultiLayerNetwork model = new MultiLayerNetwork(conf);
         model.init();
 
         DataSet dataSet = createDataSet(x, y);
-        for (int i = 0; i < nEpochs; i ++) {
+        for (int i = 0; i < nEpochs; i++) {
             model.fit(dataSet);
         }
         
         return model;
     }
 
-    private DataSet createDataSet(DoubleMatrix2D x, double[] y) {
-        int rows = x.rows();
-        int cols = x.columns();
-        INDArray features = Nd4j.create(x.toArray());
+    private DataSet createDataSet(double[][] x, double[] y) {
+        int rows = x.length;
+        INDArray features = Nd4j.create(x);
         INDArray labels = Nd4j.create(y, new int[]{rows, 1});
         DataSet dataSet = new DataSet(features, labels);
         DataNormalization normalizer = new NormalizerStandardize();
         normalizer.fit(dataSet);
         normalizer.transform(dataSet);
         return dataSet;
+    }
+    @Override
+    public NN4jRegressor clone() {
+        try {
+            // Serialize and then deserialize to achieve deep cloning
+            ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+            ObjectOutputStream out = new ObjectOutputStream(byteOut);
+            out.writeObject(this);
+            ByteArrayInputStream byteIn = new ByteArrayInputStream(byteOut.toByteArray());
+            ObjectInputStream in = new ObjectInputStream(byteIn);
+            return (NN4jRegressor) in.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+            return null;
+        }
     }
 
     private MultiLayerNetwork createNetworkFromConfig(JSONObject config) {
