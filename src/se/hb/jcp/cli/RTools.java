@@ -81,7 +81,7 @@ public class RTools {
 
         int noPredictions = testSet.y.length;
         int correct = 0;
-
+        int nearlyPerfectPred = 0; 
         double sumAbsoluteError = 0.0;
         double sumSquaredError = 0.0;
         //Efficiency of a conformal regression (see Report series/DSV - On effectively creating ensembles of classifiers - 3.1.1 page 42)
@@ -94,8 +94,8 @@ public class RTools {
             double intervalWidth = upperBound - lowerBound;
             sumIntervalWidth += intervalWidth;
             intervalWidths[i] = intervalWidth;
-            //System.out.println("Lower bound :" + lowerBound + " Upper bound : " + upperBound);
             double predictedValue = (lowerBound + upperBound) / 2;
+
 
             if (jsonOutput != null) {
                 jsonOutput.object();
@@ -106,10 +106,20 @@ public class RTools {
                 jsonOutput.key("upper_bound").value(upperBound);
                 jsonOutput.endObject();
             }
-
+            
             double trueValue = testSet.y[i];
+
+            double tolerance = 1.0; 
+
+            if (trueValue <= predictedValue + tolerance && trueValue >= predictedValue - tolerance) {
+                nearlyPerfectPred++;
+            }
             if (lowerBound <= trueValue && trueValue <= upperBound) {
                 correct++;
+            }
+            else {
+                System.out.println("Lower bound :" + lowerBound + " Upper bound : " + upperBound + " Predicted value " + predictedValue + " True value : " + testSet.y[i]);
+
             }
 
             double error = trueValue - predictedValue;
@@ -131,8 +141,11 @@ public class RTools {
         double rmse = Math.sqrt(mse);
         double coverage = (double) correct / noPredictions;
 
+        double perfectRatio = (double) nearlyPerfectPred / noPredictions;
+
         System.out.println("Test Duration " + (double) (t2 - t1) / 1000.0 + " sec.");
         System.out.println("Coverage " + coverage);
+        System.out.println("Perfect prediction ratio " + perfectRatio);
         System.out.println("Mean Absolute Error (MAE): " + mae);
         System.out.println("Mean Squared Error (MSE): " + mse);
         System.out.println("Root Mean Squared Error (RMSE): " + rmse);

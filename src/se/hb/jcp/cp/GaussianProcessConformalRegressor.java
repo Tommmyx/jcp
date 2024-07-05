@@ -1,87 +1,71 @@
-// JCP - Java Conformal Prediction framework
-// Copyright (C) 2014  Henrik Linusson
-//
-// This library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published
-// by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-//
 package se.hb.jcp.cp;
-
-import se.hb.jcp.util.ParallelizedAction;
 
 import cern.colt.matrix.DoubleMatrix1D;
 import cern.colt.matrix.DoubleMatrix2D;
-import cern.colt.matrix.impl.DenseDoubleMatrix1D;
-import cern.colt.matrix.impl.DenseDoubleMatrix2D;
 import cern.colt.matrix.impl.SparseDoubleMatrix1D;
-
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.util.Arrays;
-import java.util.SortedMap;
-
-import se.hb.jcp.nc.IClassificationNonconformityFunction;
 import se.hb.jcp.nc.IRegressionNonconformityFunction;
+import se.hb.jcp.util.ParallelizedAction;
 
-public class QuantileConformalRegressor implements IConformalRegressor, java.io.Serializable {
-    
-    private static final boolean PARALLEL = true;
+import java.io.Serializable;
+import java.util.Arrays;
+import java.util.stream.IntStream;
+
+public class GaussianProcessConformalRegressor implements IConformalRegressor, Serializable {
+
+    private static final boolean PARALLEL = false;
 
     private IRegressionNonconformityFunction _nc;
     private double[] _calibrationScores;
 
-    public QuantileConformalRegressor(IRegressionNonconformityFunction nc) {
+    public GaussianProcessConformalRegressor(IRegressionNonconformityFunction nc) {
         _nc = nc;
     }
 
     public void fit(DoubleMatrix2D xtr, double[] ytr, DoubleMatrix2D xcal, double[] ycal) {
-        _nc.fit(xtr, ytr);
-        calibrate(xcal, ycal);
+        _nc.fit(xtr, ytr);    
+        _calibrationScores = IntStream.range(0, xcal.rows())
+                                  .parallel()
+                                  .mapToDouble(i -> {
+                                      DoubleMatrix1D instance = xcal.viewRow(i);
+                                      double[] prediction = _nc.predictWithUncertainty(instance);
+                                      double predictedValue = prediction[0];
+                                      double uncertainty = prediction[1];
+                                      return Math.abs(ycal[i] - predictedValue) / uncertainty;
+                                  })
+                                  .sorted()
+                                  .toArray();
     }
 
-    public void calibrate(DoubleMatrix2D xcal, double[] ycal) {
+    /*public void calibrate(DoubleMatrix2D xcal, double[] ycal) {
         int n = xcal.rows();
         _calibrationScores = new double[n];
-    
+
         for (int i = 0; i < n; i++) {
             DoubleMatrix1D instance = xcal.viewRow(i);
-            double label = ycal[i];
-            _calibrationScores[i] = _nc.calculateNonConformityScore(instance, label);
+            double[] prediction = _nc.predictWithUncertainty(instance);
+            double predictedValue = prediction[0];
+            double uncertainty = prediction[1];
+            _calibrationScores[i] = Math.abs(ycal[i] - predictedValue) / uncertainty;
         }
-    
+
         Arrays.sort(_calibrationScores);
-    
-        // Print calibration scores for debugging
-        System.out.println("Calibration Scores: " + Arrays.toString(_calibrationScores));
-    }
-       
+    }*/
 
     public double calculateQuantile(double alpha) {
         int n = _calibrationScores.length;
         int index = (int) Math.ceil((1 - alpha) * (n + 1)) - 1;
-        System.out.println("qhat" + _calibrationScores[Math.max(0, Math.min(index, n - 1))]);
+        System.out.println("CALIB " + _calibrationScores[Math.max(0, Math.min(index, n - 1))]);
         return _calibrationScores[Math.max(0, Math.min(index, n - 1))];
     }
 
-
     public double[] predictIntervals(DoubleMatrix1D x, double alpha) {
-        double [] prediction = _nc.predictWithUncertainty(x);
+        double[] prediction = _nc.predictWithUncertainty(x);
         double predictedValue = prediction[0];
         double uncertainty = prediction[1];
         double qhat = calculateQuantile(alpha);
-        System.out.println("predicted : " + predictedValue + " uncert " + uncertainty);
         return new double[]{predictedValue - qhat * uncertainty, predictedValue + qhat * uncertainty};
     }
-
+    
     public double[][] predictIntervals(DoubleMatrix2D x, double confidence) {
         int n = x.rows();
         double[][] intervals = new double[n][2];
@@ -110,36 +94,19 @@ public class QuantileConformalRegressor implements IConformalRegressor, java.io.
         }
     }
 
-     @Override
-    public DoubleMatrix1D nativeStorageTemplate()
-    {
+    @Override
+    public DoubleMatrix1D nativeStorageTemplate() {
         if (getNonconformityFunction() != null) {
             return getNonconformityFunction().nativeStorageTemplate();
         } else {
-            return new cern.colt.matrix.impl.SparseDoubleMatrix1D(0);
+            return new SparseDoubleMatrix1D(0);
         }
     }
-
-    private void writeObject(ObjectOutputStream oos)
-        throws java.io.IOException
-    {
-        oos.writeObject(_nc);
-        oos.writeObject(_calibrationScores);
-    }
-
-    @SuppressWarnings("unchecked") // There is not much to do if the saved
-                                   // value doesn't match the expected type.
-    private void readObject(ObjectInputStream ois)
-        throws ClassNotFoundException, java.io.IOException
-    {
-        _nc = (IRegressionNonconformityFunction)ois.readObject();
-        _calibrationScores = (double[])ois.readObject();
-    }
-
 
     public IRegressionNonconformityFunction getNonconformityFunction() {
         return _nc;
     }
+
     class PredictIntervalsAction extends ParallelizedAction {
         DoubleMatrix2D _x;
         double[][] _intervals;
@@ -188,3 +155,4 @@ public class QuantileConformalRegressor implements IConformalRegressor, java.io.
     }
 
 }
+

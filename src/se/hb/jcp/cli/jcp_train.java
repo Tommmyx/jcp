@@ -21,10 +21,15 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.util.AbstractMap.SimpleEntry;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.SortedSet;
 
 import org.json.JSONObject;
 import org.json.JSONTokener;
+
+import se.hb.jcp.bindings.smile.GaussianProcessRegressor;
+import cern.colt.matrix.DoubleMatrix1D;
 
 import se.hb.jcp.cp.*;
 import se.hb.jcp.nc.*;
@@ -64,6 +69,9 @@ public class jcp_train
     
     private IRegressor _regressor;
     private boolean _isRegression = false;
+    //for transductive conformal regressor : 
+    private boolean _useGPP = false; 
+    private String _testFileName;
 
     public jcp_train()
     {
@@ -76,7 +84,13 @@ public class jcp_train
     public void run(String[] args) throws IOException {
         processArguments(args);
         if (_isRegression) {
-            trainRegressor(_dataSetFileName);
+            if(_useGPP) {
+                trainGPP(_dataSetFileName);
+            }
+            else {
+                trainRegressor(_dataSetFileName);
+
+            }
         } else {
             if (_useCP && _useTCC) {
                 trainTCC(_dataSetFileName);
@@ -222,6 +236,17 @@ public class jcp_train
                     _useLCCC = true;
                 } else if (args[i].equals("-mpc")) {
                     _useMPC = true;
+                } else if (args[i].equals("-gpp")) {
+                    _useGPP = true;
+                    if (++i < args.length) {
+                        _testFileName = args[i];
+                        
+                    } else {
+                        System.err.println("Error: No model file name given to -gpp (need a test file).");
+                        System.err.println();
+                        printUsage();
+                        System.exit(-1);
+                    }
                 } else if (args[i].equals("-nc-val")) {
                     if (++i < args.length) {
                         boolean ok = false;
@@ -379,7 +404,7 @@ public class jcp_train
         System.out.println("Duration " + (double)(t3 - t2)/1000.0 + " sec.");
 
         System.out.println("Training on " + _training.x.rows() + " instances and calibrating on " + _calibration.x.rows() + " instances.");
-        QuantileConformalRegressor icr = new QuantileConformalRegressor(RegressionNonconformityFunctionFactory.getInstance().createNonconformityFunction(_ncFunctionType, _regressor));
+        GaussianProcessConformalRegressor icr = new GaussianProcessConformalRegressor(RegressionNonconformityFunctionFactory.getInstance().createNonconformityFunction(_ncFunctionType, _regressor));
         icr.fit(_training.x, _training.y, _calibration.x, _calibration.y);
         if (_validate) {
             RTools.runTest(icr, _test, null, _significanceLevel, false);
@@ -394,7 +419,49 @@ public class jcp_train
         }
          
     }
+    private void trainGPP(String dataSetFileName) throws IOException {
+        long t1 = System.currentTimeMillis();
+        _full = DataSetTools.loadDataSet(dataSetFileName);
+        long t2 = System.currentTimeMillis();
+        System.out.println("Duration " + (double)(t2 - t1)/1000.0 + " sec.");
+        long t3 = System.currentTimeMillis();
+        _test = DataSetTools.loadDataSet(_testFileName);
+        long t4 = System.currentTimeMillis();
+        System.out.println("Duration " + (double)(t4 - t3)/1000.0 + " sec.");
 
+        //GaussianProcessConformalRegressor gpcr = new GaussianProcessConformalRegressor(RegressionNonconformityFunctionFactory.getInstance().createNonconformityFunction(_ncFunctionType, _regressor));
+        /*TestGaussianProcessRegressor gpr = new TestGaussianProcessRegressor(_full.x.toArray(), _full.y, 0.05);
+        TestGPRConformalPredictor predictor = new TestGPRConformalPredictor(gpr);
+         for (int i = 0; i < _test.x.size(); i++) {
+            double[] x_test = _test.x.toArray()[i]; // Point de test
+            double y_test = _test.y[i]; // Valeur de test réelle
+
+            // Calcul des intervalles de prédiction conformes
+            ArrayList<Double> intervals = predictor.computePredictionIntervals(x_test, 0.05);
+
+            // Affichage des résultats
+            System.out.println("Point de test " + (i + 1) + " : x = " + Arrays.toString(x_test) + ", y réel = " + y_test);
+            System.out.println("Intervalles de prédiction conformes : " + intervals);
+            System.out.println();
+        }*/
+
+     
+        /* 
+        TestGaussianProcessRegressor gpr = new TestGaussianProcessRegressor(new JSONObject().put("sigma", 1.0).put("lambda", 0.1));
+        gpr.internalFit(_full.x, _full.y);
+        for(int i = 0; i < _test.x.size(); i++) {
+            DoubleMatrix1D newPoint = _test.x.viewRow(i);
+
+            // Predict with 95% confidence interval (significance level 0.05)
+            double[] interval = gpr.conformalPredict(newPoint, _full.x, _full.y, 0.05);
+
+            System.out.println("Prediction Interval: [" + interval[0] + ", " + interval[1] + "]");
+        }*/
+        
+
+        
+        
+    }
     private void trainICC(String dataSetFileName)
         throws IOException
     {
